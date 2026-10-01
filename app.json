@@ -28,9 +28,12 @@
       [
         "expo-font",
         {
-          "fonts": ["./node_modules/@expo-google-fonts/press-start-2p/PressStart2P_400Regular.ttf"]
+          "fonts": [
+            "./node_modules/@expo-google-fonts/press-start-2p/PressStart2P_400Regular.ttf"
+          ]
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

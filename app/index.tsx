@@ -1,12 +1,11 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Animated,
-  Pressable,
-  AccessibilityInfo,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -39,7 +38,7 @@ function pickConfirmation() {
 // ---------------------------------------------------------------------------
 // Empty state — no records ever
 // ---------------------------------------------------------------------------
-function EmptyState({ onLog }: { onLog: () => void }) {
+function EmptyState({ onLog, disabled }: { onLog: () => void; disabled: boolean }) {
   return (
     <View style={styles.emptyContainer}>
       <PixelText size="xs" color={C.muted} align="center" style={{ marginBottom: 24 }}>
@@ -48,7 +47,7 @@ function EmptyState({ onLog }: { onLog: () => void }) {
       <PixelText size="xxs" color={C.muted} align="center" style={{ marginBottom: 40 }}>
         Next time it happens, tell me.
       </PixelText>
-      <PrimaryButton label="I POOPED" onPress={onLog} />
+      <PrimaryButton label="I POOPED" onPress={onLog} disabled={disabled} />
     </View>
   );
 }
@@ -59,26 +58,24 @@ function EmptyState({ onLog }: { onLog: () => void }) {
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { latest, create, records } = usePoopContext();
+  const { latest, create, records, isSaving } = usePoopContext();
 
   const [charState, setCharState] = useState<CharacterState>('idle');
   const [confirmation, setConfirmation] = useState<string | null>(null);
-  const [justLogged, setJustLogged] = useState(false);
-  const confirmOpacity = useRef(new Animated.Value(0)).current;
-
-  // Recalculate elapsed every minute
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const [justLoggedId, setJustLoggedId] = useState<string | null>(null);
+  const [confirmOpacity] = useState(() => new Animated.Value(0));
 
   const elapsed = useElapsedTime(latest?.timestamp ?? null);
 
-  const handleLog = useCallback(() => {
-    // Immediately record
-    create({ timestamp: new Date().toISOString() });
-    setJustLogged(true);
+  const handleLog = useCallback(async () => {
+    let record;
+    try {
+      record = await create({ timestamp: new Date().toISOString() });
+    } catch {
+      Alert.alert('Could not save', 'The record was not saved. Please try again.');
+      return;
+    }
+    setJustLoggedId(record.id);
 
     // Pick confirmation line
     const msg = pickConfirmation();
@@ -95,7 +92,7 @@ export default function TodayScreen() {
       Animated.delay(2500),
       Animated.timing(confirmOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
     ]).start(() => {
-      setJustLogged(false);
+      setJustLoggedId(null);
       setConfirmation(null);
     });
   }, [create, confirmOpacity]);
@@ -113,7 +110,7 @@ export default function TodayScreen() {
           <PoopCharacter scale={4} state={charState} />
         </PixelScene>
         <View style={{ flex: 1 }}>
-          <EmptyState onLog={handleLog} />
+          <EmptyState onLog={() => { void handleLog(); }} disabled={isSaving} />
         </View>
       </View>
     );
@@ -158,7 +155,8 @@ export default function TodayScreen() {
         <View style={styles.actionBlock}>
           <PrimaryButton
             label="I POOPED"
-            onPress={handleLog}
+            onPress={() => { void handleLog(); }}
+            disabled={isSaving}
             accessibilityHint="Records a poop event right now"
           />
 
@@ -170,13 +168,13 @@ export default function TodayScreen() {
           </Animated.View>
 
           {/* Correction link — only show right after logging */}
-          {justLogged && (
+          {justLoggedId && (
             <TextButton
               label="NOT NOW? CHANGE TIME"
               color={C.muted}
               size="xxs"
               onPress={() => {
-                if (latest) router.push(`/edit/${latest.id}`);
+                router.push(`/edit/${justLoggedId}`);
               }}
               style={{ marginTop: 2 }}
             />

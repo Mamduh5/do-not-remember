@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing, AccessibilityInfo } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Animated, Easing } from 'react-native';
 import { C } from '../constants/colors';
 
 // ---------------------------------------------------------------------------
@@ -56,26 +56,6 @@ const BLINK: Grid = BASE.map((row, y) => {
   });
 });
 
-/** Hop frame 1 — legs up */
-const HOP1: Grid = [
-  [_,_,_,D,D,D,D,D,_,_,_,_,_],
-  [_,_,D,B,B,B,B,B,D,_,_,_,_],
-  [_,D,B,B,L,L,B,B,B,D,_,_,_],
-  [_,D,B,L,L,L,L,B,B,D,_,_,_],
-  [D,B,B,B,L,L,B,B,B,B,D,_,_],
-  [D,B,B,B,B,B,B,B,B,B,D,_,_],
-  [D,B,W,W,B,B,W,W,B,B,D,_,_],
-  [D,B,W,P,B,B,W,P,B,B,D,_,_],
-  [D,B,B,B,B,B,B,B,B,B,D,_,_],
-  [D,B,B,B,M,M,M,B,B,B,D,_,_],
-  [_,D,B,B,B,B,B,B,B,D,_,_,_],
-  [_,_,D,B,B,B,B,B,D,_,_,_,_],
-  [_,_,_,D,D,D,D,D,_,_,_,_,_],
-  [_,_,_,_,_,_,_,_,_,_,_,_,_],
-  [_,_,G,_,_,_,G,_,_,_,_,_,_],
-  [_,_,_,_,_,_,_,_,_,_,_,_,_],
-];
-
 const COLOR_MAP: Record<number, string> = {
   0: 'transparent',
   1: C.poop,
@@ -96,20 +76,22 @@ interface PixelRowProps {
   pixelSize: number;
 }
 
-const PixelRow = React.memo(({ row, pixelSize }: PixelRowProps) => (
-  <View style={{ flexDirection: 'row' }}>
-    {row.map((code, x) => (
-      <View
-        key={x}
-        style={{
-          width: pixelSize,
-          height: pixelSize,
-          backgroundColor: COLOR_MAP[code] ?? 'transparent',
-        }}
-      />
-    ))}
-  </View>
-));
+const PixelRow = React.memo(function PixelRow({ row, pixelSize }: PixelRowProps) {
+  return (
+    <View style={{ flexDirection: 'row' }}>
+      {row.map((code, x) => (
+        <View
+          key={x}
+          style={{
+            width: pixelSize,
+            height: pixelSize,
+            backgroundColor: COLOR_MAP[code] ?? 'transparent',
+          }}
+        />
+      ))}
+    </View>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Character component
@@ -127,14 +109,14 @@ export function PoopCharacter({ scale = 4, state = 'idle' }: PoopCharacterProps)
   const pixelSize = scale;
 
   // Blink animation
-  const blinkOpacity = useRef(new Animated.Value(1)).current;
+  const [blinkOpacity] = useState(() => new Animated.Value(1));
 
   // Vertical bob (idle)
-  const bobY = useRef(new Animated.Value(0)).current;
+  const [bobY] = useState(() => new Animated.Value(0));
 
   // Hop for logging event
-  const hopY = useRef(new Animated.Value(0)).current;
-  const hopScale = useRef(new Animated.Value(1)).current;
+  const [hopY] = useState(() => new Animated.Value(0));
+  const [hopScale] = useState(() => new Animated.Value(1));
 
   // Blink loop
   useEffect(() => {

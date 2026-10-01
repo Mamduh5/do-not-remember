@@ -1,89 +1,117 @@
-import { useState, useCallback } from 'react';
-import type { PoopRecord } from '../types/poop';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Crypto from 'expo-crypto';
+import { getDatabase } from '../db/database';
+import { SQLitePoopRepository } from '../repositories/SQLitePoopRepository';
+import type { CreatePoopInput, PoopRecord, PoopRepository, UpdatePoopInput } from '../types/poop';
 
-// ---------------------------------------------------------------------------
-// Seeded mock data — realistic sample content for UI development
-// ---------------------------------------------------------------------------
-
-const MOCK_RECORDS: PoopRecord[] = [
-  {
-    id: '1',
-    timestamp: new Date(Date.now() - 14 * 60 * 60 * 1000 - 23 * 60 * 1000).toISOString(), // ~14h 23m ago
-    status: 'normal',
-    note: '',
-  },
-  {
-    id: '2',
-    timestamp: new Date(Date.now() - 37 * 60 * 60 * 1000 - 12 * 60 * 1000).toISOString(),
-    status: 'quick',
-    note: '',
-  },
-  {
-    id: '3',
-    timestamp: new Date(Date.now() - 60 * 60 * 60 * 1000 - 5 * 60 * 1000).toISOString(),
-    status: "don't ask",
-    note: 'took forever',
-  },
-  {
-    id: '4',
-    timestamp: new Date(Date.now() - 84 * 60 * 60 * 1000).toISOString(),
-    status: 'normal',
-    note: '',
-  },
-  {
-    id: '5',
-    timestamp: new Date(Date.now() - 110 * 60 * 60 * 1000 - 45 * 60 * 1000).toISOString(),
-    status: 'a struggle',
-    note: 'regret everything',
-  },
-  {
-    id: '6',
-    timestamp: new Date(Date.now() - 134 * 60 * 60 * 1000).toISOString(),
-    status: 'normal',
-    note: '',
-  },
-];
-
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 10);
+function sortRecords(records: PoopRecord[]): PoopRecord[] {
+  return [...records].sort((a, b) =>
+    b.timestamp.localeCompare(a.timestamp) || b.id.localeCompare(a.id)
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Hook — replaces a real PoopRepository implementation for UI purposes
-// ---------------------------------------------------------------------------
+function messageFor(error: unknown): string {
+  return error instanceof Error ? error.message : 'Could not access local records.';
+}
 
 export function usePoopStore() {
-  const [records, setRecords] = useState<PoopRecord[]>(MOCK_RECORDS);
+  const repository = useRef<PoopRepository | null>(null);
+  const mutationInFlight = useRef(false);
+  const [records, setRecords] = useState<PoopRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [initializationError, setInitializationError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const latest = records.length > 0
-    ? records.reduce((a, b) =>
-        new Date(a.timestamp) > new Date(b.timestamp) ? a : b
-      )
-    : null;
+  const initialize = useCallback(async () => {
+    setIsLoading(true);
+    setInitializationError(null);
+    try {
+      const db = await getDatabase();
+      const nextRepository = new SQLitePoopRepository(db, Crypto.randomUUID);
+      const initialRecords = await nextRepository.list();
+      repository.current = nextRepository;
+      setRecords(initialRecords);
+      setError(null);
+    } catch (cause) {
+      setInitializationError(messageFor(cause));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-  const create = useCallback((partial: Omit<PoopRecord, 'id'>): PoopRecord => {
-    const record: PoopRecord = { id: generateId(), ...partial };
-    setRecords(prev => [record, ...prev]);
+  useEffect(() => {
+    void initialize();
+  }, [initialize]);
+
+  const refresh = useCallback(async () => {
+    if (!repository.current) return;
+    try {
+      setRecords(await repository.current.list());
+      setError(null);
+    } catch (cause) {
+      setError(messageFor(cause));
+      throw cause;
+    }
+  }, []);
+
+  const afterMutation = useCallback(async () => {
+    try {
+      await refresh();
+    } catch {
+      // The write succeeded. Keep the already-updated local view and surface
+      // the refresh error separately rather than encouraging a duplicate write.
+    }
+  }, [refresh]);
+
+  const runMutation = useCallback(async <T,>(operation: (repo: PoopRepository) => Promise<T>): Promise<T> => {
+    if (!repository.current) throw new Error('Local records are still loading.');
+    if (mutationInFlight.current) throw new Error('Please wait for the current change.');
+    mutationInFlight.current = true;
+    setIsSaving(true);
+    setError(null);
+    try {
+      return await operation(repository.current);
+    } catch (cause) {
+      setError(messageFor(cause));
+      throw cause;
+    } finally {
+      mutationInFlight.current = false;
+      setIsSaving(false);
+    }
+  }, []);
+
+  const create = useCallback((input: CreatePoopInput) => runMutation(async repo => {
+    const record = await repo.create(input);
+    setRecords(previous => sortRecords([...previous, record]));
+    await afterMutation();
     return record;
-  }, []);
+  }), [runMutation, afterMutation]);
 
-  const update = useCallback((
-    id: string,
-    partial: Partial<Omit<PoopRecord, 'id'>>
-  ): void => {
-    setRecords(prev =>
-      prev.map(r => (r.id === id ? { ...r, ...partial } : r))
-    );
-  }, []);
+  const update = useCallback((id: string, input: UpdatePoopInput) => runMutation(async repo => {
+    const record = await repo.update(id, input);
+    setRecords(previous => sortRecords(previous.map(item => item.id === id ? record : item)));
+    await afterMutation();
+    return record;
+  }), [runMutation, afterMutation]);
 
-  const remove = useCallback((id: string): void => {
-    setRecords(prev => prev.filter(r => r.id !== id));
-  }, []);
+  const remove = useCallback((id: string) => runMutation(async repo => {
+    await repo.delete(id);
+    setRecords(previous => previous.filter(item => item.id !== id));
+    await afterMutation();
+  }), [runMutation, afterMutation]);
 
-  /** Sorted newest-first */
-  const sorted = [...records].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
-
-  return { latest, records: sorted, create, update, remove };
+  return {
+    latest: records[0] ?? null,
+    records,
+    create,
+    update,
+    remove,
+    refresh,
+    retry: initialize,
+    isLoading,
+    initializationError,
+    isSaving,
+    error,
+  };
 }

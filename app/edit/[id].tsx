@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
   View,
-  Text,
   TextInput,
   StyleSheet,
   ScrollView,
@@ -12,16 +11,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { C } from '../../constants/colors';
-import { FONT, SIZE } from '../../constants/typography';
-import { PixelText, PixelDivider, PixelBox } from '../../components/Typography';
+import { FONT } from '../../constants/typography';
+import { PixelText, PixelDivider } from '../../components/Typography';
 import { PrimaryButton, TextButton, StatusChip } from '../../components/Controls';
 import { usePoopContext } from '../../context/PoopContext';
+import { POOP_STATUSES } from '../../types/poop';
+import type { PoopStatus } from '../../types/poop';
 
 // ---------------------------------------------------------------------------
 // Status options
 // ---------------------------------------------------------------------------
-const STATUS_OPTIONS = ['normal', 'quick', 'a struggle', "don't ask"] as const;
-type Status = (typeof STATUS_OPTIONS)[number];
+const STATUS_OPTIONS = POOP_STATUSES;
 
 // ---------------------------------------------------------------------------
 // Date/time helpers
@@ -42,8 +42,17 @@ function toTimeInput(iso: string) {
 }
 
 function combineDateTime(dateStr: string, timeStr: string): string {
-  // dateStr = YYYY-MM-DD, timeStr = HH:MM
-  return new Date(`${dateStr}T${timeStr}`).toISOString();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !/^\d{2}:\d{2}$/.test(timeStr)) {
+    throw new Error('Invalid date or time');
+  }
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute] = timeStr.split(':').map(Number);
+  const date = new Date(year, month - 1, day, hour, minute);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 ||
+      date.getDate() !== day || date.getHours() !== hour || date.getMinutes() !== minute) {
+    throw new Error('Invalid date or time');
+  }
+  return date.toISOString();
 }
 
 // ---------------------------------------------------------------------------
@@ -53,16 +62,16 @@ export default function EditRecordScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { records, update, remove } = usePoopContext();
+  const { records, update, remove, isSaving } = usePoopContext();
 
   const record = records.find(r => r.id === id);
 
   const [dateStr, setDateStr] = useState(record ? toDateInput(record.timestamp) : '');
   const [timeStr, setTimeStr] = useState(record ? toTimeInput(record.timestamp) : '');
-  const [status, setStatus] = useState<Status | undefined>(record?.status as Status | undefined);
+  const [status, setStatus] = useState<PoopStatus | undefined>(record?.status);
   const [note, setNote] = useState(record?.note ?? '');
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!record) return;
     let timestamp: string;
     try {
@@ -72,8 +81,12 @@ export default function EditRecordScreen() {
       Alert.alert('Bad date', 'Please enter a valid date and time.');
       return;
     }
-    update(record.id, { timestamp, status, note: note.trim() || undefined });
-    router.back();
+    try {
+      await update(record.id, { timestamp, status, note: note.trim() || undefined });
+      router.back();
+    } catch (error) {
+      Alert.alert('Could not save', error instanceof Error ? error.message : 'Please try again.');
+    }
   }, [record, dateStr, timeStr, status, note, update, router]);
 
   const handleDelete = useCallback(() => {
@@ -85,9 +98,14 @@ export default function EditRecordScreen() {
         {
           text: 'DELETE',
           style: 'destructive',
-          onPress: () => {
-            if (record) remove(record.id);
-            router.back();
+          onPress: async () => {
+            if (!record) return;
+            try {
+              await remove(record.id);
+              router.back();
+            } catch (error) {
+              Alert.alert('Could not delete', error instanceof Error ? error.message : 'Please try again.');
+            }
           },
         },
       ]
@@ -117,7 +135,7 @@ export default function EditRecordScreen() {
         <View style={styles.header}>
           <TextButton label="BACK" color={C.ink} size="xs" onPress={() => router.back()} />
           <PixelText size="xs" color={C.ink}>EDIT RECORD</PixelText>
-          <TextButton label="DELETE" color="#9B3A3A" size="xs" onPress={handleDelete} />
+          <TextButton label="DELETE" color="#9B3A3A" size="xs" onPress={handleDelete} disabled={isSaving} />
         </View>
 
         <PixelDivider color={C.tile} />
@@ -202,7 +220,7 @@ export default function EditRecordScreen() {
 
           {/* ─ Save ─ */}
           <View style={styles.saveRow}>
-            <PrimaryButton label="SAVE" onPress={handleSave} />
+            <PrimaryButton label="SAVE" onPress={() => { void handleSave(); }} disabled={isSaving} />
           </View>
         </ScrollView>
       </View>
