@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -14,46 +14,22 @@ import { C } from '../../constants/colors';
 import { FONT } from '../../constants/typography';
 import { PixelText, PixelDivider } from '../../components/Typography';
 import { PrimaryButton, TextButton, StatusChip } from '../../components/Controls';
+import { MonthCalendar } from '../../components/MonthCalendar';
+import { TimeWheelPicker } from '../../components/TimeWheelPicker';
 import { usePoopContext } from '../../context/PoopContext';
 import { POOP_STATUSES } from '../../types/poop';
 import type { PoopStatus } from '../../types/poop';
+import {
+  toLocalDateString,
+  toLocalTimeString,
+  formatReadableDate,
+  combineLocalDateTime,
+} from '../../utils/dateTime';
 
 // ---------------------------------------------------------------------------
 // Status options
 // ---------------------------------------------------------------------------
 const STATUS_OPTIONS = POOP_STATUSES;
-
-// ---------------------------------------------------------------------------
-// Date/time helpers
-// ---------------------------------------------------------------------------
-function toDateInput(iso: string) {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function toTimeInput(iso: string) {
-  const d = new Date(iso);
-  const h = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return `${h}:${min}`;
-}
-
-function combineDateTime(dateStr: string, timeStr: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !/^\d{2}:\d{2}$/.test(timeStr)) {
-    throw new Error('Invalid date or time');
-  }
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const [hour, minute] = timeStr.split(':').map(Number);
-  const date = new Date(year, month - 1, day, hour, minute);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 ||
-      date.getDate() !== day || date.getHours() !== hour || date.getMinutes() !== minute) {
-    throw new Error('Invalid date or time');
-  }
-  return date.toISOString();
-}
 
 // ---------------------------------------------------------------------------
 // EDIT RECORD screen
@@ -66,8 +42,21 @@ export default function EditRecordScreen() {
 
   const record = records.find(r => r.id === id);
 
-  const [dateStr, setDateStr] = useState(record ? toDateInput(record.timestamp) : '');
-  const [timeStr, setTimeStr] = useState(record ? toTimeInput(record.timestamp) : '');
+  const markedDates = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of records) {
+      const key = toLocalDateString(new Date(r.timestamp));
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [records]);
+
+  const [dateStr, setDateStr] = useState(
+    record ? toLocalDateString(new Date(record.timestamp)) : ''
+  );
+  const [timeStr, setTimeStr] = useState(
+    record ? toLocalTimeString(new Date(record.timestamp)) : ''
+  );
   const [status, setStatus] = useState<PoopStatus | undefined>(record?.status);
   const [note, setNote] = useState(record?.note ?? '');
 
@@ -75,10 +64,10 @@ export default function EditRecordScreen() {
     if (!record) return;
     let timestamp: string;
     try {
-      timestamp = combineDateTime(dateStr, timeStr);
+      timestamp = combineLocalDateTime(dateStr, timeStr);
       if (isNaN(new Date(timestamp).getTime())) throw new Error('invalid');
     } catch {
-      Alert.alert('Bad date', 'Please enter a valid date and time.');
+      Alert.alert('Bad date or time', 'Please verify the selected date and time.');
       return;
     }
     try {
@@ -145,36 +134,24 @@ export default function EditRecordScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* ─ Date ─ */}
+          {/* ─ Date (Monthly Calendar) ─ */}
           <View style={styles.field}>
-            <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>DATE</PixelText>
-            <TextInput
-              style={styles.input}
-              value={dateStr}
-              onChangeText={setDateStr}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={C.muted}
-              keyboardType="numeric"
-              maxLength={10}
-              accessibilityLabel="Date"
-            />
+            <View style={styles.fieldHeader}>
+              <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>DATE</PixelText>
+              <PixelText size="xs" color={C.ink}>{formatReadableDate(dateStr)}</PixelText>
+            </View>
+            <MonthCalendar value={dateStr} onChange={setDateStr} markedDates={markedDates} />
           </View>
 
           <PixelDivider color={C.tile} />
 
-          {/* ─ Time ─ */}
+          {/* ─ Time (Wheel Picker) ─ */}
           <View style={styles.field}>
-            <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>TIME</PixelText>
-            <TextInput
-              style={styles.input}
-              value={timeStr}
-              onChangeText={setTimeStr}
-              placeholder="HH:MM"
-              placeholderTextColor={C.muted}
-              keyboardType="numeric"
-              maxLength={5}
-              accessibilityLabel="Time"
-            />
+            <View style={styles.fieldHeader}>
+              <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>TIME</PixelText>
+              <PixelText size="xs" color={C.ink}>{timeStr}</PixelText>
+            </View>
+            <TimeWheelPicker value={timeStr} onChange={setTimeStr} />
           </View>
 
           <PixelDivider color={C.tile} />
@@ -248,15 +225,20 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   field: {
-    paddingVertical: 20,
+    paddingVertical: 16,
+  },
+  fieldHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
   },
   fieldLabel: {
-    marginBottom: 12,
     letterSpacing: 1,
   },
   input: {
     fontFamily: FONT.body,
-    fontSize: 18,
+    fontSize: 16,
     color: C.ink,
     borderBottomWidth: 1,
     borderBottomColor: C.muted,

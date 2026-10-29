@@ -11,6 +11,8 @@
       "supportsTablet": false
     },
     "android": {
+      "package": "com.mamduh.donotremember",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#F5F0E8",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -29,7 +31,7 @@
         "expo-font",
         {
           "fonts": [
-            "./node_modules/@expo-google-fonts/press-start-2p/PressStart2P_400Regular.ttf"
+            "./node_modules/@expo-google-fonts/press-start-2p/400Regular/PressStart2P_400Regular.ttf"
           ]
         }
       ],
@@ -37,6 +39,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7fa5ce6e-7b9a-408e-9148-2188aeeb47e0"
+      }
     }
   }
 }
