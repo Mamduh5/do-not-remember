@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, StyleSheet, Pressable, Text } from 'react-native';
+import { View, StyleSheet, Pressable, Text, PanResponder } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { C } from '../constants/colors';
 import { FONT, SIZE } from '../constants/typography';
@@ -21,13 +21,23 @@ interface MonthCalendarProps {
   onChange: (value: string) => void;
   /** Number of records per local YYYY-MM-DD; days with a count > 0 get a poop marker */
   markedDates?: Record<string, number>;
+  /** Invoked when a horizontal month swipe gesture starts */
+  onInteractionStart?: () => void;
+  /** Invoked when a horizontal month swipe gesture completes or cancels */
+  onInteractionEnd?: () => void;
 }
 
 type CalendarCell =
   | { type: 'empty'; key: string }
   | { type: 'day'; day: number; dateStr: string; key: string };
 
-export function MonthCalendar({ value, onChange, markedDates }: MonthCalendarProps) {
+export function MonthCalendar({
+  value,
+  onChange,
+  markedDates,
+  onInteractionStart,
+  onInteractionEnd,
+}: MonthCalendarProps) {
   // Parse initial view from value or fallback to today
   const initialDate = useMemo(() => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -75,6 +85,47 @@ export function MonthCalendar({ value, onChange, markedDates }: MonthCalendarPro
       return prev + 1;
     });
   }, []);
+
+  // Directional PanResponder: captures horizontal swipe to change months without
+  // interfering with vertical page scrolling or date taps.
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          const { dx, dy } = gestureState;
+          // Predominantly horizontal swipe with at least 15px movement
+          return Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 15;
+        },
+        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
+          const { dx, dy } = gestureState;
+          return Math.abs(dx) > Math.abs(dy) * 1.5 && Math.abs(dx) > 15;
+        },
+
+        onPanResponderGrant: () => {
+          onInteractionStart?.();
+        },
+
+        onPanResponderRelease: (_, gestureState) => {
+          onInteractionEnd?.();
+          const { dx } = gestureState;
+          if (dx < -40) {
+            // Swiped left -> next month
+            goToNextMonth();
+          } else if (dx > 40) {
+            // Swiped right -> previous month
+            goToPrevMonth();
+          }
+        },
+
+        onPanResponderTerminate: () => {
+          onInteractionEnd?.();
+        },
+      }),
+    [goToNextMonth, goToPrevMonth, onInteractionStart, onInteractionEnd]
+  );
 
   const daysInMonth = useMemo(() => getDaysInMonth(viewYear, viewMonth + 1), [viewYear, viewMonth]);
   const firstDayOfWeek = useMemo(() => getFirstDayOfWeek(viewYear, viewMonth + 1), [viewYear, viewMonth]);
@@ -133,8 +184,8 @@ export function MonthCalendar({ value, onChange, markedDates }: MonthCalendarPro
         ))}
       </View>
 
-      {/* ── Days Grid ── */}
-      <View style={styles.grid}>
+      {/* ── Days Grid (Supports horizontal swipe navigation) ── */}
+      <View style={styles.grid} {...panResponder.panHandlers}>
         {cells.map(cell => {
           if (cell.type === 'empty') {
             return <View key={cell.key} style={styles.cellWrapper} />;

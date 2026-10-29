@@ -60,6 +60,17 @@ export default function EditRecordScreen() {
   const [status, setStatus] = useState<PoopStatus | undefined>(record?.status);
   const [note, setNote] = useState(record?.note ?? '');
 
+  // Coordinated scroll state: child wheels and horizontal swipes disable page scrolling while active
+  const [pageScrollEnabled, setPageScrollEnabled] = useState(true);
+
+  const handleInteractionStart = useCallback(() => {
+    setPageScrollEnabled(false);
+  }, []);
+
+  const handleInteractionEnd = useCallback(() => {
+    setPageScrollEnabled(true);
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (!record) return;
     let timestamp: string;
@@ -130,28 +141,41 @@ export default function EditRecordScreen() {
         <PixelDivider color={C.tile} />
 
         <ScrollView
+          scrollEnabled={pageScrollEnabled}
+          nestedScrollEnabled={true}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* ─ Date (Monthly Calendar) ─ */}
+          {/* ─ Date (Monthly Calendar with swipe support) ─ */}
           <View style={styles.field}>
             <View style={styles.fieldHeader}>
               <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>DATE</PixelText>
               <PixelText size="xs" color={C.ink}>{formatReadableDate(dateStr)}</PixelText>
             </View>
-            <MonthCalendar value={dateStr} onChange={setDateStr} markedDates={markedDates} />
+            <MonthCalendar
+              value={dateStr}
+              onChange={setDateStr}
+              markedDates={markedDates}
+              onInteractionStart={handleInteractionStart}
+              onInteractionEnd={handleInteractionEnd}
+            />
           </View>
 
           <PixelDivider color={C.tile} />
 
-          {/* ─ Time (Wheel Picker) ─ */}
+          {/* ─ Time (Wheel Picker with gesture isolation) ─ */}
           <View style={styles.field}>
             <View style={styles.fieldHeader}>
               <PixelText size="xxs" color={C.muted} style={styles.fieldLabel}>TIME</PixelText>
               <PixelText size="xs" color={C.ink}>{timeStr}</PixelText>
             </View>
-            <TimeWheelPicker value={timeStr} onChange={setTimeStr} />
+            <TimeWheelPicker
+              value={timeStr}
+              onChange={setTimeStr}
+              onInteractionStart={handleInteractionStart}
+              onInteractionEnd={handleInteractionEnd}
+            />
           </View>
 
           <PixelDivider color={C.tile} />
